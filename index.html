@@ -1,1 +1,697 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Basemap Explorer</title>
 
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Playfair+Display:wght@700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    :root {
+      --bg: #0e0f11;
+      --panel: #16181c;
+      --border: #2a2d35;
+      --accent: #c8a96e;
+      --accent2: #7eb8d4;
+      --text: #e8e4dc;
+      --text-muted: #6b7280;
+      --tag-bg: #1e2128;
+      --active-bg: #1e2128;
+      --active-border: #c8a96e;
+      --font-mono: 'DM Mono', monospace;
+      --font-display: 'Playfair Display', serif;
+    }
+
+    html, body { height: 100%; overflow: hidden; background: var(--bg); color: var(--text); font-family: var(--font-mono); }
+
+    /* ── Layout ── */
+    #app { display: flex; height: 100vh; }
+
+    /* ── Sidebar ── */
+    #sidebar {
+      width: 300px;
+      min-width: 300px;
+      background: var(--panel);
+      border-right: 1px solid var(--border);
+      display: flex;
+      flex-direction: column;
+      z-index: 1000;
+      overflow: hidden;
+    }
+
+    #sidebar-header {
+      padding: 22px 20px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    #sidebar-header h1 {
+      font-family: var(--font-display);
+      font-size: 1.35rem;
+      color: var(--accent);
+      letter-spacing: 0.01em;
+      line-height: 1.2;
+    }
+
+    #sidebar-header p {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      margin-top: 5px;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    /* search */
+    #search-wrap {
+      padding: 12px 16px;
+      border-bottom: 1px solid var(--border);
+    }
+
+    #search {
+      width: 100%;
+      background: var(--tag-bg);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      color: var(--text);
+      font-family: var(--font-mono);
+      font-size: 0.75rem;
+      padding: 7px 10px;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+    #search:focus { border-color: var(--accent); }
+    #search::placeholder { color: var(--text-muted); }
+
+    /* filter tabs */
+    #filter-tabs {
+      display: flex;
+      gap: 6px;
+      padding: 10px 16px;
+      border-bottom: 1px solid var(--border);
+      flex-wrap: wrap;
+    }
+
+    .filter-tab {
+      font-family: var(--font-mono);
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      padding: 4px 10px;
+      border-radius: 20px;
+      border: 1px solid var(--border);
+      background: transparent;
+      color: var(--text-muted);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .filter-tab:hover { border-color: var(--accent); color: var(--accent); }
+    .filter-tab.active { background: var(--accent); border-color: var(--accent); color: #0e0f11; font-weight: 500; }
+
+    /* map list */
+    #map-list {
+      flex: 1;
+      overflow-y: auto;
+      padding: 8px 10px;
+    }
+
+    #map-list::-webkit-scrollbar { width: 4px; }
+    #map-list::-webkit-scrollbar-track { background: transparent; }
+    #map-list::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+    .category-label {
+      font-size: 0.6rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      color: var(--text-muted);
+      padding: 10px 8px 5px;
+    }
+
+    .map-item {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 9px 10px;
+      border-radius: 6px;
+      cursor: pointer;
+      transition: background 0.15s;
+      border: 1px solid transparent;
+      margin-bottom: 2px;
+    }
+    .map-item:hover { background: var(--tag-bg); }
+    .map-item.active {
+      background: var(--active-bg);
+      border-color: var(--active-border);
+    }
+
+    .map-item-dot {
+      width: 8px; height: 8px;
+      border-radius: 50%;
+      flex-shrink: 0;
+    }
+
+    .map-item-info { flex: 1; min-width: 0; }
+
+    .map-item-name {
+      font-size: 0.78rem;
+      color: var(--text);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      font-weight: 500;
+    }
+    .map-item.active .map-item-name { color: var(--accent); }
+
+    .map-item-desc {
+      font-size: 0.62rem;
+      color: var(--text-muted);
+      margin-top: 2px;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .map-item-zoom {
+      font-size: 0.6rem;
+      color: var(--text-muted);
+      flex-shrink: 0;
+      background: var(--tag-bg);
+      padding: 2px 5px;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+    }
+
+    /* count badge */
+    #count-badge {
+      padding: 8px 20px;
+      font-size: 0.62rem;
+      color: var(--text-muted);
+      border-top: 1px solid var(--border);
+      letter-spacing: 0.04em;
+    }
+
+    /* ── Map Area ── */
+    #map-container { flex: 1; position: relative; }
+    #map { width: 100%; height: 100%; }
+
+    /* overlay info */
+    #overlay-info {
+      position: absolute;
+      top: 16px; right: 16px;
+      z-index: 900;
+      background: rgba(14,15,17,0.88);
+      backdrop-filter: blur(8px);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 14px 18px;
+      max-width: 260px;
+      pointer-events: none;
+    }
+
+    #overlay-name {
+      font-family: var(--font-display);
+      font-size: 1rem;
+      color: var(--accent);
+      margin-bottom: 4px;
+    }
+
+    #overlay-desc {
+      font-size: 0.68rem;
+      color: var(--text-muted);
+      line-height: 1.5;
+    }
+
+    #overlay-tags {
+      display: flex;
+      gap: 4px;
+      flex-wrap: wrap;
+      margin-top: 8px;
+    }
+
+    .tag {
+      font-size: 0.58rem;
+      text-transform: uppercase;
+      letter-spacing: 0.07em;
+      padding: 2px 7px;
+      border-radius: 3px;
+      border: 1px solid var(--border);
+      color: var(--text-muted);
+    }
+    .tag.zoom { border-color: var(--accent2); color: var(--accent2); }
+
+    /* zoom display */
+    #zoom-display {
+      position: absolute;
+      bottom: 30px; right: 16px;
+      z-index: 900;
+      background: rgba(14,15,17,0.8);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 5px 10px;
+      font-size: 0.65rem;
+      color: var(--text-muted);
+    }
+
+    /* leaflet overrides */
+    .leaflet-control-zoom a {
+      background: var(--panel) !important;
+      color: var(--text) !important;
+      border-color: var(--border) !important;
+    }
+    .leaflet-control-zoom a:hover { background: var(--tag-bg) !important; color: var(--accent) !important; }
+    .leaflet-control-attribution {
+      background: rgba(14,15,17,0.75) !important;
+      color: var(--text-muted) !important;
+      font-size: 0.6rem !important;
+    }
+    .leaflet-control-attribution a { color: var(--accent2) !important; }
+
+    /* hidden items from search */
+    .map-item.hidden { display: none; }
+    .category-section.hidden { display: none; }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Sidebar -->
+  <div id="sidebar">
+    <div id="sidebar-header">
+      <h1>Basemap Explorer</h1>
+      <p>배경지도 비교 도구 · 개인용</p>
+    </div>
+
+    <div id="search-wrap">
+      <input id="search" type="text" placeholder="지도 이름 검색..." autocomplete="off" />
+    </div>
+
+    <div id="filter-tabs">
+      <button class="filter-tab active" data-filter="all">전체</button>
+      <button class="filter-tab" data-filter="street">도로</button>
+      <button class="filter-tab" data-filter="terrain">지형</button>
+      <button class="filter-tab" data-filter="satellite">위성</button>
+      <button class="filter-tab" data-filter="minimal">미니멀</button>
+      <button class="filter-tab" data-filter="dark">다크</button>
+      <button class="filter-tab" data-filter="historical">역사</button>
+    </div>
+
+    <div id="map-list"></div>
+
+    <div id="count-badge" id="count-badge">로딩 중...</div>
+  </div>
+
+  <!-- Map -->
+  <div id="map-container">
+    <div id="map"></div>
+    <div id="overlay-info">
+      <div id="overlay-name">지도를 선택하세요</div>
+      <div id="overlay-desc">좌측 목록에서 배경지도를 선택하면 여기에 정보가 표시됩니다.</div>
+      <div id="overlay-tags"></div>
+    </div>
+    <div id="zoom-display">Zoom: <span id="zoom-val">4</span></div>
+  </div>
+
+</div>
+
+<script>
+// ── 지도 데이터 정의 ──
+const MAPS = [
+  // ── 도로/일반
+  {
+    id: 'osm', name: 'OpenStreetMap', category: 'street', tags: ['street'],
+    color: '#7eb8d4',
+    desc: '가장 널리 쓰이는 오픈소스 지도. 도로, 건물, POI 모두 포함.',
+    url: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+    opts: { maxZoom: 19, attribution: '© OpenStreetMap contributors' }
+  },
+  {
+    id: 'osm-de', name: 'OSM Deutschland', category: 'street', tags: ['street'],
+    color: '#7eb8d4',
+    desc: 'OSM 독일 스타일 렌더링. 색감이 다소 다름.',
+    url: 'https://{s}.tile.openstreetmap.de/tiles/osmde/{z}/{x}/{y}.png',
+    opts: { maxZoom: 18, attribution: '© OpenStreetMap contributors' }
+  },
+  {
+    id: 'otm', name: 'OpenTopoMap', category: 'terrain', tags: ['terrain'],
+    color: '#90c97a',
+    desc: '등고선이 포함된 지형도. 산악 지형 파악에 유용.',
+    url: 'https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',
+    opts: { maxZoom: 17, attribution: '© OpenTopoMap contributors' }
+  },
+
+  // ── ESRI 계열
+  {
+    id: 'esri-physical', name: 'ESRI World Physical', category: 'terrain', tags: ['terrain', 'historical'],
+    color: '#c8a96e',
+    desc: '부드러운 색감의 자연 지형도. 역사 지도 배경으로 인기.',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Physical_Map/MapServer/tile/{z}/{y}/{x}',
+    opts: { maxZoom: 8, attribution: 'Tiles © Esri — Source: US National Park Service' }
+  },
+  {
+    id: 'esri-shaded', name: 'ESRI Shaded Relief', category: 'terrain', tags: ['terrain', 'historical'],
+    color: '#c8a96e',
+    desc: '음영기복도. 레이블 없이 지형만 표시. maxZoom 13.',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Shaded_Relief/MapServer/tile/{z}/{y}/{x}',
+    opts: { maxZoom: 13, attribution: 'Tiles © Esri' }
+  },
+  {
+    id: 'esri-terrain', name: 'ESRI World Terrain Base', category: 'terrain', tags: ['terrain', 'historical'],
+    color: '#c8a96e',
+    desc: '지형 + 기본 레이블. Shaded Relief보다 상세.',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Terrain_Base/MapServer/tile/{z}/{y}/{x}',
+    opts: { maxZoom: 13, attribution: 'Tiles © Esri' }
+  },
+  {
+    id: 'esri-natgeo', name: 'ESRI NatGeo', category: 'terrain', tags: ['terrain', 'historical'],
+    color: '#c8a96e',
+    desc: '내셔널지오그래픽 스타일. 지형과 레이블이 조화롭게 표현.',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/NatGeo_World_Map/MapServer/tile/{z}/{y}/{x}',
+    opts: { maxZoom: 16, attribution: 'Tiles © Esri — National Geographic' }
+  },
+  {
+    id: 'esri-topo', name: 'ESRI World Topo', category: 'terrain', tags: ['terrain', 'street'],
+    color: '#c8a96e',
+    desc: 'ESRI 지형+도로 혼합 지도. 일반 용도로 범용적.',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{z}/{y}/{x}',
+    opts: { maxZoom: 19, attribution: 'Tiles © Esri' }
+  },
+  {
+    id: 'esri-street', name: 'ESRI World Street', category: 'street', tags: ['street'],
+    color: '#c8a96e',
+    desc: 'ESRI 도로 지도. 선명하고 깔끔한 스타일.',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Street_Map/MapServer/tile/{z}/{y}/{x}',
+    opts: { maxZoom: 19, attribution: 'Tiles © Esri' }
+  },
+  {
+    id: 'esri-satellite', name: 'ESRI World Imagery', category: 'satellite', tags: ['satellite'],
+    color: '#5a8a6a',
+    desc: 'ESRI 위성사진. 고해상도 항공/위성 이미지.',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',
+    opts: { maxZoom: 19, attribution: 'Tiles © Esri' }
+  },
+  {
+    id: 'esri-ocean', name: 'ESRI Ocean Basemap', category: 'terrain', tags: ['terrain'],
+    color: '#c8a96e',
+    desc: '해양 중심 지도. 해저 지형과 해류 정보 포함.',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Ocean/World_Ocean_Base/MapServer/tile/{z}/{y}/{x}',
+    opts: { maxZoom: 13, attribution: 'Tiles © Esri' }
+  },
+  {
+    id: 'esri-gray', name: 'ESRI Light Gray', category: 'minimal', tags: ['minimal'],
+    color: '#aaaaaa',
+    desc: '밝은 회색 미니멀 지도. 데이터 시각화 배경으로 적합.',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Light_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+    opts: { maxZoom: 16, attribution: 'Tiles © Esri' }
+  },
+  {
+    id: 'esri-dark-gray', name: 'ESRI Dark Gray', category: 'dark', tags: ['dark', 'minimal'],
+    color: '#555566',
+    desc: '어두운 회색 미니멀 지도. 야간 모드 / 데이터 강조에 적합.',
+    url: 'https://server.arcgisonline.com/ArcGIS/rest/services/Canvas/World_Dark_Gray_Base/MapServer/tile/{z}/{y}/{x}',
+    opts: { maxZoom: 16, attribution: 'Tiles © Esri' }
+  },
+
+  // ── CartoDB 계열
+  {
+    id: 'carto-positron', name: 'CartoDB Positron', category: 'minimal', tags: ['minimal'],
+    color: '#cccccc',
+    desc: '거의 백지에 가까운 밝은 미니멀 지도. 레이블 최소화.',
+    url: 'https://{s}.basemaps.cartocdn.com/light_all/{z}/{x}/{y}{r}.png',
+    opts: { maxZoom: 20, attribution: '© CartoDB', subdomains: 'abcd' }
+  },
+  {
+    id: 'carto-positron-nolabels', name: 'CartoDB Positron (레이블 없음)', category: 'minimal', tags: ['minimal', 'historical'],
+    color: '#cccccc',
+    desc: '완전한 백지도. 레이블이 전혀 없어 역사 지도 배경으로 최적.',
+    url: 'https://{s}.basemaps.cartocdn.com/light_nolabels/{z}/{x}/{y}{r}.png',
+    opts: { maxZoom: 20, attribution: '© CartoDB', subdomains: 'abcd' }
+  },
+  {
+    id: 'carto-dark', name: 'CartoDB Dark Matter', category: 'dark', tags: ['dark'],
+    color: '#334455',
+    desc: '진한 다크 테마 지도. 네온 계열 시각화에 잘 어울림.',
+    url: 'https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png',
+    opts: { maxZoom: 20, attribution: '© CartoDB', subdomains: 'abcd' }
+  },
+  {
+    id: 'carto-dark-nolabels', name: 'CartoDB Dark (레이블 없음)', category: 'dark', tags: ['dark', 'historical'],
+    color: '#334455',
+    desc: '다크 테마, 레이블 없음. 어두운 역사 지도 배경으로 사용 가능.',
+    url: 'https://{s}.basemaps.cartocdn.com/dark_nolabels/{z}/{x}/{y}{r}.png',
+    opts: { maxZoom: 20, attribution: '© CartoDB', subdomains: 'abcd' }
+  },
+  {
+    id: 'carto-voyager', name: 'CartoDB Voyager', category: 'street', tags: ['street', 'minimal'],
+    color: '#cccccc',
+    desc: '세련된 중간 톤 지도. OSM보다 깔끔한 스타일.',
+    url: 'https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}{r}.png',
+    opts: { maxZoom: 20, attribution: '© CartoDB', subdomains: 'abcd' }
+  },
+
+  // ── Stamen 계열 (via Stadia)
+  {
+    id: 'stamen-toner', name: 'Stamen Toner', category: 'minimal', tags: ['minimal', 'dark'],
+    color: '#111111',
+    desc: '흑백 고대비 지도. 인쇄물 / 예술적 용도에 적합.',
+    url: 'https://tiles.stadiamaps.com/tiles/stamen_toner/{z}/{x}/{y}{r}.png',
+    opts: { maxZoom: 20, attribution: '© Stadia Maps, © Stamen Design, © OpenStreetMap' }
+  },
+  {
+    id: 'stamen-toner-lite', name: 'Stamen Toner Lite', category: 'minimal', tags: ['minimal'],
+    color: '#aaaaaa',
+    desc: 'Toner의 연한 버전. 흰 바탕에 연한 회색 선.',
+    url: 'https://tiles.stadiamaps.com/tiles/stamen_toner_lite/{z}/{x}/{y}{r}.png',
+    opts: { maxZoom: 20, attribution: '© Stadia Maps, © Stamen Design, © OpenStreetMap' }
+  },
+  {
+    id: 'stamen-terrain', name: 'Stamen Terrain', category: 'terrain', tags: ['terrain'],
+    color: '#90c97a',
+    desc: '색감 있는 지형도. 고도 음영과 자연 색상이 특징.',
+    url: 'https://tiles.stadiamaps.com/tiles/stamen_terrain/{z}/{x}/{y}{r}.png',
+    opts: { maxZoom: 18, attribution: '© Stadia Maps, © Stamen Design, © OpenStreetMap' }
+  },
+  {
+    id: 'stamen-watercolor', name: 'Stamen Watercolor', category: 'historical', tags: ['historical', 'terrain'],
+    color: '#c8a96e',
+    desc: '수채화 느낌의 예술적 지도. 고지도 느낌을 낼 때 효과적.',
+    url: 'https://tiles.stadiamaps.com/tiles/stamen_watercolor/{z}/{x}/{y}.jpg',
+    opts: { maxZoom: 16, attribution: '© Stadia Maps, © Stamen Design, © OpenStreetMap' }
+  },
+
+  // ── 위성/항공
+  {
+    id: 'google-sat', name: 'Google Satellite', category: 'satellite', tags: ['satellite'],
+    color: '#5a8a6a',
+    desc: 'Google 위성 이미지 (비공식). 고해상도.',
+    url: 'https://mt1.google.com/vt/lyrs=s&x={x}&y={y}&z={z}',
+    opts: { maxZoom: 20, attribution: '© Google' }
+  },
+  {
+    id: 'google-hybrid', name: 'Google Hybrid', category: 'satellite', tags: ['satellite', 'street'],
+    color: '#5a8a6a',
+    desc: '위성 + 도로 레이블 혼합 (비공식).',
+    url: 'https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}',
+    opts: { maxZoom: 20, attribution: '© Google' }
+  },
+  {
+    id: 'google-terrain', name: 'Google Terrain', category: 'terrain', tags: ['terrain', 'street'],
+    color: '#90c97a',
+    desc: 'Google 지형 지도 (비공식). 등고선 + 도로 포함.',
+    url: 'https://mt1.google.com/vt/lyrs=p&x={x}&y={y}&z={z}',
+    opts: { maxZoom: 20, attribution: '© Google' }
+  },
+
+  // ── 다크 테마
+  {
+    id: 'stadia-dark', name: 'Stadia Alidade Dark', category: 'dark', tags: ['dark'],
+    color: '#334455',
+    desc: 'Stadia Maps의 다크 테마. 세련된 배색.',
+    url: 'https://tiles.stadiamaps.com/tiles/alidade_smooth_dark/{z}/{x}/{y}{r}.png',
+    opts: { maxZoom: 20, attribution: '© Stadia Maps, © OpenStreetMap' }
+  },
+  {
+    id: 'stadia-smooth', name: 'Stadia Alidade Smooth', category: 'minimal', tags: ['minimal'],
+    color: '#cccccc',
+    desc: 'Stadia Maps의 밝은 부드러운 테마.',
+    url: 'https://tiles.stadiamaps.com/tiles/alidade_smooth/{z}/{x}/{y}{r}.png',
+    opts: { maxZoom: 20, attribution: '© Stadia Maps, © OpenStreetMap' }
+  },
+  {
+    id: 'stadia-satellite', name: 'Stadia Alidade Satellite', category: 'satellite', tags: ['satellite'],
+    color: '#5a8a6a',
+    desc: 'Stadia Maps 위성 이미지.',
+    url: 'https://tiles.stadiamaps.com/tiles/alidade_satellite/{z}/{x}/{y}{r}.jpg',
+    opts: { maxZoom: 20, attribution: '© Stadia Maps' }
+  },
+  {
+    id: 'stadia-outdoors', name: 'Stadia Outdoors', category: 'terrain', tags: ['terrain'],
+    color: '#90c97a',
+    desc: '아웃도어 활동용 지형 지도. 등산로 등 포함.',
+    url: 'https://tiles.stadiamaps.com/tiles/outdoors/{z}/{x}/{y}{r}.png',
+    opts: { maxZoom: 20, attribution: '© Stadia Maps, © OpenStreetMap' }
+  },
+
+  // ── 역사/특수
+  {
+    id: 'thunderforest-landscape', name: 'Thunderforest Landscape', category: 'terrain', tags: ['terrain'],
+    color: '#90c97a',
+    desc: '자연 중심의 경관 지도. 지형 색상이 풍부.',
+    url: 'https://{s}.tile.thunderforest.com/landscape/{z}/{x}/{y}.png?apikey=',
+    opts: { maxZoom: 22, attribution: '© Thunderforest, © OpenStreetMap', note: 'API 키 필요' }
+  },
+  {
+    id: 'wikimedia', name: 'Wikimedia Maps', category: 'street', tags: ['street'],
+    color: '#7eb8d4',
+    desc: '위키미디어 기반 지도. 다국어 레이블 지원.',
+    url: 'https://maps.wikimedia.org/osm-intl/{z}/{x}/{y}{r}.png',
+    opts: { maxZoom: 19, attribution: '© Wikimedia Maps, © OpenStreetMap' }
+  },
+];
+
+// ── 카테고리 정의 ──
+const CATEGORIES = [
+  { id: 'street',    label: '도로 지도' },
+  { id: 'terrain',   label: '지형 지도' },
+  { id: 'satellite', label: '위성 사진' },
+  { id: 'minimal',   label: '미니멀' },
+  { id: 'dark',      label: '다크 테마' },
+  { id: 'historical',label: '역사/특수' },
+];
+
+// ── Leaflet 초기화 ──
+const map = L.map('map', {
+  center: [35, 110],
+  zoom: 4,
+  zoomControl: true,
+});
+
+let currentLayer = null;
+let activeId = null;
+
+function loadMap(mapDef) {
+  if (currentLayer) map.removeLayer(currentLayer);
+  activeId = mapDef.id;
+
+  const opts = { ...mapDef.opts };
+  if (opts.note) delete opts.note; // internal flag
+
+  if (mapDef.opts.subdomains) {
+    currentLayer = L.tileLayer(mapDef.url, opts).addTo(map);
+  } else {
+    currentLayer = L.tileLayer(mapDef.url, opts).addTo(map);
+  }
+
+  // overlay info
+  document.getElementById('overlay-name').textContent = mapDef.name;
+  document.getElementById('overlay-desc').textContent = mapDef.desc + (mapDef.opts.note ? ` ⚠️ ${mapDef.opts.note}` : '');
+
+  const tagsEl = document.getElementById('overlay-tags');
+  tagsEl.innerHTML = '';
+  mapDef.tags.forEach(t => {
+    const span = document.createElement('span');
+    span.className = 'tag';
+    span.textContent = t;
+    tagsEl.appendChild(span);
+  });
+  const zoomTag = document.createElement('span');
+  zoomTag.className = 'tag zoom';
+  zoomTag.textContent = `maxZ: ${mapDef.opts.maxZoom}`;
+  tagsEl.appendChild(zoomTag);
+
+  // active state
+  document.querySelectorAll('.map-item').forEach(el => {
+    el.classList.toggle('active', el.dataset.id === mapDef.id);
+  });
+}
+
+// ── Sidebar 렌더링 ──
+let currentFilter = 'all';
+let currentSearch = '';
+
+function renderList() {
+  const listEl = document.getElementById('map-list');
+  listEl.innerHTML = '';
+
+  CATEGORIES.forEach(cat => {
+    const items = MAPS.filter(m => {
+      const matchCat = currentFilter === 'all' || m.tags.includes(currentFilter);
+      const matchSearch = currentSearch === '' || m.name.toLowerCase().includes(currentSearch) || m.desc.includes(currentSearch);
+      return m.category === cat.id && matchCat && matchSearch;
+    });
+
+    if (items.length === 0) return;
+
+    const section = document.createElement('div');
+    section.className = 'category-section';
+
+    const label = document.createElement('div');
+    label.className = 'category-label';
+    label.textContent = cat.label;
+    section.appendChild(label);
+
+    items.forEach(m => {
+      const item = document.createElement('div');
+      item.className = 'map-item' + (m.id === activeId ? ' active' : '');
+      item.dataset.id = m.id;
+
+      item.innerHTML = `
+        <div class="map-item-dot" style="background:${m.color}"></div>
+        <div class="map-item-info">
+          <div class="map-item-name">${m.name}</div>
+          <div class="map-item-desc">${m.desc}</div>
+        </div>
+        <div class="map-item-zoom">Z${m.opts.maxZoom}</div>
+      `;
+
+      item.addEventListener('click', () => {
+        loadMap(m);
+        renderList();
+      });
+
+      section.appendChild(item);
+    });
+
+    listEl.appendChild(section);
+  });
+
+  // count
+  const visible = MAPS.filter(m => {
+    const matchCat = currentFilter === 'all' || m.tags.includes(currentFilter);
+    const matchSearch = currentSearch === '' || m.name.toLowerCase().includes(currentSearch) || m.desc.includes(currentSearch);
+    return matchCat && matchSearch;
+  }).length;
+
+  document.getElementById('count-badge').textContent = `${visible} / ${MAPS.length} 개 지도`;
+}
+
+// 필터 탭
+document.querySelectorAll('.filter-tab').forEach(btn => {
+  btn.addEventListener('click', () => {
+    document.querySelectorAll('.filter-tab').forEach(b => b.classList.remove('active'));
+    btn.classList.add('active');
+    currentFilter = btn.dataset.filter;
+    renderList();
+  });
+});
+
+// 검색
+document.getElementById('search').addEventListener('input', e => {
+  currentSearch = e.target.value.toLowerCase();
+  renderList();
+});
+
+// 줌 표시
+map.on('zoomend', () => {
+  document.getElementById('zoom-val').textContent = map.getZoom();
+});
+
+// 초기 로드
+renderList();
+loadMap(MAPS[0]);
+</script>
+</body>
+</html>
